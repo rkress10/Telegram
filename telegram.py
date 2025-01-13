@@ -45,7 +45,6 @@ async def main():
         if message.action != None or message.from_id == None:
             # these are mostly users joining the channel, ignore
             continue
-        print(message)
         if type(message.media) == MessageMediaGeo:
             HandleAppleMaps(message, sightingsData)
         elif 'maps.app.goo.gl' in message.message:
@@ -63,14 +62,15 @@ async def main():
         UpdateLastReadMessage(lastReadMessageId)
 
 def OutputCSV(users):
-    f = open(f'CSV/GGOSightings_{firstReadMessageId}_{lastReadMessageId}_{datetime.datetime.now()}', 'w')
+    f = open(f'CSV/GGOSightings_{firstReadMessageId}_{lastReadMessageId}_{datetime.datetime.now()}.csv', 'w')
     for row in dataCsv:
         splitRow = row.split(',')
         username = ''
         print(splitRow)
         if splitRow[2] in users:
             username = users[splitRow[2]]
-        f.write(f'{datetime.date.today()},{username},"{splitRow[0]}, {splitRow[1]}"')
+        date = datetime.date.today()
+        f.write(f'{date.month}/{date.day}/{date.year},"{splitRow[0]}, {splitRow[1]}",{username}')
         f.write('\n')
     f.close()
 
