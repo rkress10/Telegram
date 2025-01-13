@@ -16,6 +16,8 @@ dataCsv = []
 lastReadMessageId = -1
 firstReadMessageId = -1
 
+verbose = False
+
 #region constants
 #region File constants
 lastMessageFileName = "Database/lastMessageId"
@@ -26,12 +28,14 @@ _latLongconst = 'latlong'
 _pendingconst = 'pending'
 #endregion
 
-async def main():
+async def ParseSightings():
     channel = await client.get_entity(-1001221913118)
     updateData = input("Update Data?: ")
     minMessageId = TryGetLastMessageId(updateData)
-    sightingsData = TryLoadSightings()
+    sightingsData = {}
     isFirst = True
+    lastReadMessageId = -1
+    firstReadMessageId = -1
     if minMessageId == -1:
         return
     if input("Load Users?: ") == "Load Users":
@@ -42,6 +46,9 @@ async def main():
         if isFirst:
             isFirst = False
             firstReadMessageId = message.id
+            Log(firstReadMessageId)
+            if updateData == "Y":
+                UpdateLastReadMessage(firstReadMessageId)
         if message.action != None or message.from_id == None:
             # these are mostly users joining the channel, ignore
             continue
@@ -54,19 +61,15 @@ async def main():
         elif GetUserId(message) in sightingsData:
             if len(sightingsData[GetUserId(message)][_latLongconst]) > 0:
                 sightingsData[GetUserId(message)][_latLongconst].pop()
-                print('Not Added to CSV 2')
-        #print(sightingsData)
-    print(dataCsv)
-    OutputCSV(users)
-    if updateData:
-        UpdateLastReadMessage(lastReadMessageId)
+                Log('Not Added to CSV')
+    OutputCSV(users, firstReadMessageId, lastReadMessageId)
 
-def OutputCSV(users):
-    f = open(f'CSV/GGOSightings_{firstReadMessageId}_{lastReadMessageId}_{datetime.datetime.now()}.csv', 'w')
+def OutputCSV(users, firstReadMessageId, lastReadMessageId):
+    f = open(f'CSV/GGOSightings_{datetime.datetime.now()}_{lastReadMessageId}_{firstReadMessageId}.csv', 'w')
     for row in dataCsv:
         splitRow = row.split(',')
         username = ''
-        print(splitRow)
+        Log(splitRow)
         if splitRow[2] in users:
             username = users[splitRow[2]]
         date = datetime.date.today()
@@ -74,12 +77,16 @@ def OutputCSV(users):
         f.write('\n')
     f.close()
 
+def Log(message):
+    if verbose:
+        print(message)
+
 async def LoadUsers2(channel):
     users = await client.get_participants(channel)
     f = open(usersFileName, 'w')
     userMap = {}
     for user in users:
-        print(user)
+        Log(user)
         userMap[str(user.id)] = f'{user.first_name} {user.last_name}'
     json.dump(userMap, f)
     f.close()
@@ -91,7 +98,7 @@ def LoadUsers():
     return users
 
 def HandleGGO(message, sightingsData):
-    print(message.message)
+    Log(message.message)
     userId = GetUserId(message)
     if userId not in sightingsData:
         # Add user to sightings
@@ -108,7 +115,7 @@ def HandleGGO(message, sightingsData):
 
 def HandleAppleMaps(message, sightingsData):
     latLong = FormatAppleMaps(message.media.geo)
-    print(f'apple maps: {latLong}')
+    Log(f'apple maps: {latLong}')
     userId = GetUserId(message)
     if userId in sightingsData and sightingsData[userId][_pendingconst]:
         AddToCsv(latLong, userId)
@@ -120,7 +127,7 @@ def HandleGoogleMaps(message, sightingsData):
     latLong = FormatGoogleMaps(message.message)
     if latLong == None:
         return
-    print(f'google maps: {latLong}')
+    Log(f'google maps: {latLong}')
     userId = GetUserId(message)
     if userId in sightingsData and sightingsData[userId][_pendingconst]:
         AddToCsv(latLong, userId)
@@ -130,7 +137,7 @@ def HandleGoogleMaps(message, sightingsData):
 
 def AddToCsv(latLong, userId):
     dataCsv.append(f'{latLong},{userId}')
-    print('Added to CSV')
+    Log('Added to CSV')
 
 def AddToSightingsList(latLong, userId, sightingsData):
     if userId not in sightingsData:
@@ -150,7 +157,7 @@ def FormatGoogleMaps(url):
     if url[:3] == 'See':
         url = url[35:]
     if not validators.url(url):
-        print(f'Invalid URL: {originalUrl}')
+        Log(f'Invalid URL: {originalUrl}')
         return
     x = requests.get(url)
     html = bs4.BeautifulSoup(x.text, features='html5lib')
@@ -158,21 +165,11 @@ def FormatGoogleMaps(url):
         latLong = parse_qs(urlparse(html.title.text).query)['q'][0].split(',')
         return FormatLatLong(latLong[0], latLong[1])
     except:
-        print(f'Could not use URL {originalUrl}')
+        Log(f'Could not use URL {originalUrl}')
         return
 
 def FormatLatLong(lat, long):
     return f'{lat} N, {abs(float(long))} W'
-
-def TryLoadSightings():
-    try:
-        f = open(ggoSightingsFileName, "r")
-        sightings = json.loads(f.read())
-        f.close()
-        return sightings
-    except:
-        print("Error loading sightings")
-        return {}
 
 def TryGetLastMessageId(updateData):
     try:
@@ -184,17 +181,21 @@ def TryGetLastMessageId(updateData):
         print("Error getting the last read message ID")
         return -1
     
-def UpdateLastReadMessage(lastReadMessageId):
+def UpdateLastReadMessage(messageId):
     try:
         f = open(lastMessageFileName, "r")
         newIds = json.loads(f.read())
         f.close()
-        newIds["prod"] = lastReadMessageId
-        f.open(lastMessageFileName, "w")
-        f.write(json.dump(newIds, f))
+        newIds["prod"] = messageId
+        f = open(lastMessageFileName, "w")
+        json.dump(newIds, f)
         f.close()
-    except:
+        Log(f"Updated last read message: {messageId}")
+    except Exception as e:
+        print(e)
         print("Problem saving the last read message")
 
-with client:
-    client.loop.run_until_complete(main())
+if __name__ == "__main__":
+    verbose = input("Verbose?: ") == "Y"
+    with client:
+        client.loop.run_until_complete(ParseSightings())
