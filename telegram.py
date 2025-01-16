@@ -32,6 +32,7 @@ async def ParseSightings():
     channel = await client.get_entity(-1001221913118)
     updateData = input("Update Data?: ")
     minMessageId = TryGetLastMessageId(updateData)
+    Log(minMessageId)
     sightingsData = {}
     isFirst = True
     lastReadMessageId = -1
@@ -65,6 +66,9 @@ async def ParseSightings():
     OutputCSV(users, firstReadMessageId, lastReadMessageId)
 
 def OutputCSV(users, firstReadMessageId, lastReadMessageId):
+    if (len(dataCsv) == 0):
+        Log('No sightings')
+        return
     f = open(f'CSV/GGOSightings_{datetime.datetime.now()}_{lastReadMessageId}_{firstReadMessageId}.csv', 'w')
     for row in dataCsv:
         splitRow = row.split(',')
@@ -72,8 +76,8 @@ def OutputCSV(users, firstReadMessageId, lastReadMessageId):
         Log(splitRow)
         if splitRow[2] in users:
             username = users[splitRow[2]]
-        date = datetime.date.today()
-        f.write(f'{date.month}/{date.day}/{date.year},"{splitRow[0]}, {splitRow[1]}",{username}')
+            date = splitRow[3][:10]
+        f.write(f'{date[6:7]}/{date[8:10]}/{date[:4]},"{splitRow[0]}, {splitRow[1]}",{username}')
         f.write('\n')
     f.close()
 
@@ -107,7 +111,7 @@ def HandleGGO(message, sightingsData):
         sightingsData[userId][_pendingconst] = True
     else:
         if len(sightingsData[userId][_latLongconst]) > 0:
-            AddToCsv(sightingsData[userId][_latLongconst][-1], userId)
+            AddToCsv(sightingsData[userId][_latLongconst][-1], userId, message.date)
             sightingsData[userId][_latLongconst].pop()
             sightingsData[userId][_pendingconst] = False
         else:
@@ -117,8 +121,9 @@ def HandleAppleMaps(message, sightingsData):
     latLong = FormatAppleMaps(message.media.geo)
     Log(f'apple maps: {latLong}')
     userId = GetUserId(message)
+    print(message.date)
     if userId in sightingsData and sightingsData[userId][_pendingconst]:
-        AddToCsv(latLong, userId)
+        AddToCsv(latLong, userId, message.date)
         sightingsData[userId][_pendingconst] = False
     else:
         AddToSightingsList(latLong, GetUserId(message), sightingsData)
@@ -130,13 +135,13 @@ def HandleGoogleMaps(message, sightingsData):
     Log(f'google maps: {latLong}')
     userId = GetUserId(message)
     if userId in sightingsData and sightingsData[userId][_pendingconst]:
-        AddToCsv(latLong, userId)
+        AddToCsv(latLong, userId, message.date)
         sightingsData[userId][_pendingconst] = False
     else:
         AddToSightingsList(latLong, GetUserId(message), sightingsData)
 
-def AddToCsv(latLong, userId):
-    dataCsv.append(f'{latLong},{userId}')
+def AddToCsv(latLong, userId, datetime):
+    dataCsv.append(f'{latLong},{userId},{datetime}')
     Log('Added to CSV')
 
 def AddToSightingsList(latLong, userId, sightingsData):
