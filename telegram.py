@@ -7,6 +7,7 @@ import bs4
 from urllib.parse import urlparse
 from urllib.parse import parse_qs
 import datetime
+from datetime import time
 
 api_id = "25573622"
 api_hash = "a96beeca7659b9911511d819448cb247"
@@ -23,16 +24,72 @@ verbose = False
 lastMessageFileName = "Database/lastMessageId"
 ggoSightingsFileName = "Database/GGOSightings"
 usersFileName = 'Database/Users'
+martenFileName = 'CSV/MartenTimes.csv'
 #endregion
 _latLongconst = 'latlong'
 _pendingconst = 'pending'
+timeFormat = "%H:%M"
 #endregion
 
-async def ParseSightings():
+def TimeToKeyString(inTime):
+    minute = int(inTime.minute)
+    hour = int(inTime.hour)
+    if minute >= 45:
+        hour += 1
+        minute = 0
+    elif minute >= 15:
+        minute = 30
+    else:
+        minute = 0
+    return datetime.datetime(2025,1,1,hour % 24, minute, 0).strftime(timeFormat)
+
+def UTCToCentral(utcTime):
+    newTime = str((int(utcTime[:2]) + 18) % 24) + utcTime[2:]
+    Log(f'{utcTime},{newTime}')
+    return newTime
+
+async def ParseMartenTimes():
+    channel = await client.get_entity(-1001221913118)
+    minNum = 0000
+    #minNum = 11800
+    tot = 0
+    f = open(martenFileName, 'w')
+    halfHour = {}
+    keyString = ''
+    async for message in client.iter_messages(channel, min_id = minNum):
+        tot += 1
+        if message.action != None or message.from_id == None:
+            # these are mostly users joining the channel, ignore
+            continue
+        elif "marten" in message.message.lower() or "martin" in message.message.lower():
+            if "feeder" in message.message.lower():
+                keyString = TimeToKeyString(message.date)
+                if keyString in halfHour:
+                    halfHour[keyString] += 1
+                else:
+                    halfHour[keyString] = 1
+    tmpTime = datetime.datetime(2025,1,1,6,0,0)
+    maxTime = datetime.datetime(2025,1,1,23,59,59)
+    while tmpTime < maxTime:
+        keyString = TimeToKeyString(tmpTime)
+        outputString = UTCToCentral(keyString)
+        if keyString in halfHour:
+            f.write(f'{outputString}, {halfHour[keyString]}\n')
+        else:
+            f.write(f'{outputString}, 0\n')
+        timeChange = datetime.timedelta(minutes=30)
+        tmpTime = tmpTime + timeChange
+    f.close()
+    print(f'Read {tot} messages')
+        
+
+async def ParseGGOSightings():
     channel = await client.get_entity(-1001221913118)
     updateData = input("Update Data?: ")
-    minMessageId = TryGetLastMessageId(updateData)
-    Log(minMessageId)
+    minMessageId = 0
+    if updateData != "historical":
+        minMessageId = TryGetLastMessageId(updateData)
+    Log(f'Starting at message: {minMessageId}')
     sightingsData = {}
     isFirst = True
     lastReadMessageId = -1
@@ -66,18 +123,21 @@ async def ParseSightings():
     OutputCSV(users, firstReadMessageId, lastReadMessageId)
 
 def OutputCSV(users, firstReadMessageId, lastReadMessageId):
-    if (len(dataCsv) == 0):
+    if len(dataCsv) == 0:
         Log('No sightings')
         return
     f = open(f'CSV/GGOSightings_{datetime.datetime.now()}_{lastReadMessageId}_{firstReadMessageId}.csv', 'w')
     for row in dataCsv:
         splitRow = row.split(',')
-        username = ''
+        username = 'Unknown'
         Log(splitRow)
         if splitRow[2] in users:
             username = users[splitRow[2]]
-            date = splitRow[3][:10]
-        f.write(f'{date[6:7]}/{date[8:10]}/{date[:4]},"{splitRow[0]}, {splitRow[1]}",{username}')
+        date = splitRow[3]
+        utcTime = splitRow[4]
+        localHour = (int(utcTime[:2]) - 6) % 12
+        utcTime = str(localHour) + utcTime[2:]
+        f.write(f'{date},"{splitRow[0]}, {splitRow[1]}",{username},{utcTime}')
         f.write('\n')
     f.close()
 
@@ -121,7 +181,6 @@ def HandleAppleMaps(message, sightingsData):
     latLong = FormatAppleMaps(message.media.geo)
     Log(f'apple maps: {latLong}')
     userId = GetUserId(message)
-    print(message.date)
     if userId in sightingsData and sightingsData[userId][_pendingconst]:
         AddToCsv(latLong, userId, message.date)
         sightingsData[userId][_pendingconst] = False
@@ -141,7 +200,9 @@ def HandleGoogleMaps(message, sightingsData):
         AddToSightingsList(latLong, GetUserId(message), sightingsData)
 
 def AddToCsv(latLong, userId, datetime):
-    dataCsv.append(f'{latLong},{userId},{datetime}')
+    date = datetime.strftime("%m/%d/%Y")
+    time = datetime.strftime("%H:%M:%S")
+    dataCsv.append(f'{latLong},{userId},{date},{time}')
     Log('Added to CSV')
 
 def AddToSightingsList(latLong, userId, sightingsData):
@@ -202,5 +263,10 @@ def UpdateLastReadMessage(messageId):
 
 if __name__ == "__main__":
     verbose = input("Verbose?: ") == "Y"
-    with client:
-        client.loop.run_until_complete(ParseSightings())
+    animal = input("M for marten: ")
+    if (animal == "M"):
+        with client:
+            client.loop.run_until_complete(ParseMartenTimes())
+    else:
+        with client:
+            client.loop.run_until_complete(ParseGGOSightings())
