@@ -7,7 +7,7 @@ import bs4
 from urllib.parse import urlparse
 from urllib.parse import parse_qs
 import datetime
-from datetime import time
+import re
 
 api_id = "25573622"
 api_hash = "a96beeca7659b9911511d819448cb247"
@@ -29,6 +29,7 @@ martenFileName = 'CSV/MartenTimes.csv'
 _latLongconst = 'latlong'
 _pendingconst = 'pending'
 timeFormat = "%H:%M"
+regExCoordinateString = '((\-?|\+?)?\d+(\.\d+)?),\s*((\-?|\+?)?\d+(\.\d+)?)'
 #endregion
 
 def TimeToKeyString(inTime):
@@ -82,7 +83,6 @@ async def ParseMartenTimes():
     f.close()
     print(f'Read {tot} messages')
         
-
 async def ParseGGOSightings():
     channel = await client.get_entity(-1001221913118)
     updateData = input("Update Data?: ")
@@ -114,13 +114,30 @@ async def ParseGGOSightings():
             HandleAppleMaps(message, sightingsData)
         elif 'maps.app.goo.gl' in message.message:
             HandleGoogleMaps(message, sightingsData)
-        elif 'GGO' in message.message.upper() or 'great grey' in message.message.lower() or 'great gray' in message.message.lower():
+        elif ContainsGGO(message.message) and ContainsCoordinates(message.message):
+            c = SanitizeCoordinates(ContainsCoordinates(message.message).group())
+            AddToCsv(c, GetUserId(message), message.date)
+        elif ContainsCoordinates(message.message):
+            coordinates = SanitizeCoordinates(ContainsCoordinates(message.message).group())
+            HandleFoundCoordinates(message, coordinates, sightingsData)
+            Log(f'{message.message}, {coordinates}')
+        elif ContainsGGO(message.message):
             HandleGGO(message, sightingsData)
         elif GetUserId(message) in sightingsData:
             if len(sightingsData[GetUserId(message)][_latLongconst]) > 0:
                 sightingsData[GetUserId(message)][_latLongconst].pop()
                 Log('Not Added to CSV')
     OutputCSV(users, firstReadMessageId, lastReadMessageId)
+
+def SanitizeCoordinates(coord):
+    tmp = coord.split(',')
+    return f'{tmp[0]} N, {abs(float(tmp[1].strip()))} W'
+
+def ContainsCoordinates(messageString):
+    return re.search(regExCoordinateString, messageString)
+
+def ContainsGGO(messageString):
+    return 'GGO' in messageString.upper() or 'great grey' in messageString.lower() or 'great gray' in messageString.lower()
 
 def OutputCSV(users, firstReadMessageId, lastReadMessageId):
     if len(dataCsv) == 0:
@@ -180,18 +197,16 @@ def HandleGGO(message, sightingsData):
 def HandleAppleMaps(message, sightingsData):
     latLong = FormatAppleMaps(message.media.geo)
     Log(f'apple maps: {latLong}')
-    userId = GetUserId(message)
-    if userId in sightingsData and sightingsData[userId][_pendingconst]:
-        AddToCsv(latLong, userId, message.date)
-        sightingsData[userId][_pendingconst] = False
-    else:
-        AddToSightingsList(latLong, GetUserId(message), sightingsData)
+    HandleFoundCoordinates(message, latLong, sightingsData)
 
 def HandleGoogleMaps(message, sightingsData):
     latLong = FormatGoogleMaps(message.message)
     if latLong == None:
         return
     Log(f'google maps: {latLong}')
+    HandleFoundCoordinates(message, latLong, sightingsData)
+
+def HandleFoundCoordinates(message, latLong, sightingsData):
     userId = GetUserId(message)
     if userId in sightingsData and sightingsData[userId][_pendingconst]:
         AddToCsv(latLong, userId, message.date)
