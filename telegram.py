@@ -19,6 +19,8 @@ firstReadMessageId = -1
 
 verbose = False
 
+targetSpecies = 'GGO'
+
 #region constants
 #region File constants
 lastMessageFileName = "Database/lastMessageId"
@@ -114,15 +116,15 @@ async def ParseGGOSightings():
             HandleAppleMaps(message, sightingsData)
         elif 'maps.app.goo.gl' in message.message:
             HandleGoogleMaps(message, sightingsData)
-        elif ContainsGGO(message.message) and ContainsCoordinates(message.message):
+        elif ContainsTargetSpecies(message.message) and ContainsCoordinates(message.message):
             c = SanitizeCoordinates(ContainsCoordinates(message.message).group())
             AddToCsv(c, GetUserId(message), message.date)
         elif ContainsCoordinates(message.message):
             coordinates = SanitizeCoordinates(ContainsCoordinates(message.message).group())
             HandleFoundCoordinates(message, coordinates, sightingsData)
             Log(f'{message.message}, {coordinates}')
-        elif ContainsGGO(message.message):
-            HandleGGO(message, sightingsData)
+        elif ContainsTargetSpecies(message.message):
+            HandleSighting(message, sightingsData)
         elif GetUserId(message) in sightingsData:
             if len(sightingsData[GetUserId(message)][_latLongconst]) > 0:
                 sightingsData[GetUserId(message)][_latLongconst].pop()
@@ -136,14 +138,25 @@ def SanitizeCoordinates(coord):
 def ContainsCoordinates(messageString):
     return re.search(regExCoordinateString, messageString)
 
+def ContainsTargetSpecies(messageString):
+    if targetSpecies == 'GGO':
+        return ContainsGGO(messageString)
+    elif targetSpecies == 'Boreal':
+        return ContainsBoreal(messageString)
+    else:
+        return False
+
 def ContainsGGO(messageString):
     return 'GGO' in messageString.upper() or 'great grey' in messageString.lower() or 'great gray' in messageString.lower()
+
+def ContainsBoreal(messageString):
+    return 'boreal owl' in messageString.lower()
 
 def OutputCSV(users, firstReadMessageId, lastReadMessageId):
     if len(dataCsv) == 0:
         Log('No sightings')
         return
-    f = open(f'CSV/GGOSightings_{datetime.datetime.now()}_{lastReadMessageId}_{firstReadMessageId}.csv', 'w')
+    f = open(f'CSV/{targetSpecies}Sightings_{datetime.datetime.now()}_{lastReadMessageId}_{firstReadMessageId}.csv', 'w')
     for row in dataCsv:
         splitRow = row.split(',')
         username = 'Unknown'
@@ -178,7 +191,7 @@ def LoadUsers():
     f.close()
     return users
 
-def HandleGGO(message, sightingsData):
+def HandleSighting(message, sightingsData):
     Log(message.message)
     userId = GetUserId(message)
     if userId not in sightingsData:
